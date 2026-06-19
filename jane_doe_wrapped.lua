@@ -244,10 +244,7 @@ do
 
     -- Get local actor
     local function jd_getLocalActor() 
-        local ok, result = pcall(function()
-            return jd_lp.Character
-        end)
-        return ok and result or nil
+        return jd_lp.Character
     end
 
     -- Apply silent aim patch to RemoteFunction
@@ -256,7 +253,7 @@ do
             if jd_patched or not actor or not jd_NetworkRF then return end
             rfDispatch:install(jd_NetworkRF)
             rfDispatch:register("jd", function(reqName, ...)
-                local hookOk = pcall(function()
+                local hookOk, result = pcall(function()
                     if not (jd_enabled and jd_aimbotOn) then return nil end
                     local char = jd_lp.Character
                     local myHRP = char and char:FindFirstChild("HumanoidRootPart")
@@ -278,7 +275,7 @@ do
                     end
                     return nil
                 end)
-                if not hookOk then return nil end
+                if hookOk then return result else return nil end
             end)
             jd_patched = true
         end)
@@ -309,76 +306,60 @@ do
             warn("Failed to find RemoteEvent for crystal hold")
             return 
         end
+        
         local oldNC
-        local hookOk = pcall(function()
+        pcall(function()
             oldNC = hookmetamethod(game, "__namecall", function(self, ...)
-                local safeExec = pcall(function()
-                    local method = getnamecallmethod()
-                    local args = {...}
-                    if method == "FireServer" and self == re then
-                        local eventName = tostring(args[1])
-                        
-                        -- Auto-hold crystal when used
-                        if jd_enabled and eventName == (jd_lp.Name .. "CrystalInput") then
-                            if not jd_holdActive then
-                                jd_holdActive = true
-                                task.spawn(function()
-                                    local holdOk = pcall(function()
-                                        local deadline = tick() + jd_HOLD_DURATION
-                                        while tick() < deadline and jd_enabled and not jd_unloaded do
-                                            jd_holdCrystal()
-                                            task.wait(1/30)
-                                        end
-                                        jd_holdActive = false
-                                    end)
-                                    if not holdOk then
-                                        warn("Crystal hold loop failed")
-                                        jd_holdActive = false
+                local method = getnamecallmethod()
+                local args = {...}
+                if method == "FireServer" and self == re then
+                    local eventName = tostring(args[1])
+                    
+                    -- Auto-hold crystal when used
+                    if jd_enabled and eventName == (jd_lp.Name .. "CrystalInput") then
+                        if not jd_holdActive then
+                            jd_holdActive = true
+                            task.spawn(function()
+                                local holdOk = pcall(function()
+                                    local deadline = tick() + jd_HOLD_DURATION
+                                    while tick() < deadline and jd_enabled and not jd_unloaded do
+                                        jd_holdCrystal()
+                                        task.wait(1/30)
                                     end
+                                    jd_holdActive = false
                                 end)
-                            end
-                        end
-                        
-                        -- Axe lock-on when axe is thrown
-                        if jd_axeEnabled and eventName == "UseActorAbility" and args[2] and args[2][1] then
-                            local ok2, bs = pcall(function() return buffer.tostring(args[2][1]) end)
-                            if ok2 and bs and bs:find("Axe") then
-                                task.spawn(jd_axeDoLock)
-                            end
+                                if not holdOk then
+                                    warn("Crystal hold loop failed")
+                                    jd_holdActive = false
+                                end
+                            end)
                         end
                     end
-                end)
-                if safeExec then
-                    return oldNC(self, ...)
-                else
-                    warn("Error in namecall hook")
-                    return oldNC(self, ...)
+                    
+                    -- Axe lock-on when axe is thrown
+                    if jd_axeEnabled and eventName == "UseActorAbility" and args[2] and args[2][1] then
+                        local ok2, bs = pcall(function() return buffer.tostring(args[2][1]) end)
+                        if ok2 and bs and bs:find("Axe") then
+                            task.spawn(jd_axeDoLock)
+                        end
+                    end
                 end
+                return oldNC(self, ...)
             end)
         end)
-        if not hookOk then
-            warn("Failed to hook metamethod")
-        end
     end)
 
     -- Monitor character changes to re-apply patch
     task.spawn(function()
-        local monitorOk = pcall(function()
-            local lastActor=nil
-            while not jd_unloaded do
-                task.wait(0.5)
-                local charOk, cur = pcall(jd_getLocalActor)
-                if charOk then
-                    if cur~=lastActor then
-                        if lastActor~=nil then jd_patched=false; jd_killerMotionData={} end
-                        lastActor=cur
-                        if cur and jd_enabled then jd_applyPatch(cur) end
-                    end
-                end
+        local lastActor=nil
+        while not jd_unloaded do
+            task.wait(0.5)
+            local cur=jd_getLocalActor()
+            if cur~=lastActor then
+                if lastActor~=nil then jd_patched=false; jd_killerMotionData={} end
+                lastActor=cur
+                if cur and jd_enabled then jd_applyPatch(cur) end
             end
-        end)
-        if not monitorOk then
-            warn("Character monitor failed")
         end
     end)
 
@@ -390,53 +371,32 @@ do
     sec_024:Toggle({ 
         Title = "Enable Jane Doe Aimbot", Flag = "jdEnabled", Default = false, Type = "Checkbox",
         Callback = function(on)
-            local cbOk = pcall(function()
-                jd_enabled=on; local actor=jd_getLocalActor()
-                if on and not jd_patched and actor then jd_applyPatch(actor) end
-            end)
-            if not cbOk then warn("Toggle enable callback failed") end
+            jd_enabled=on; local actor=jd_getLocalActor()
+            if on and not jd_patched and actor then jd_applyPatch(actor) end
         end
     })
     
     sec_024:Toggle({ 
         Title = "Aimbot (Silent Aim)", Flag = "jdSilentAim", Default = false, Type = "Checkbox",
         Callback = function(on)
-            local cbOk = pcall(function()
-                jd_aimbotOn=on
-                local actor=jd_getLocalActor(); if on and not jd_patched and actor then jd_applyPatch(actor) end
-            end)
-            if not cbOk then warn("Silent aim toggle callback failed") end
+            jd_aimbotOn=on
+            local actor=jd_getLocalActor(); if on and not jd_patched and actor then jd_applyPatch(actor) end
         end
     })
     
     sec_024:Slider({ 
         Title = "Aim Offset (Y)", Flag = "jdAimOffset", Value = {Min=-5.0,Max=5.0,Default=jd_AIM_OFFSET}, Step = 0.1, 
-        Callback = function(v) 
-            local cbOk = pcall(function()
-                jd_AIM_OFFSET=v
-            end)
-            if not cbOk then warn("Aim offset slider failed") end
-        end 
+        Callback = function(v) jd_AIM_OFFSET=v end 
     })
     
     sec_024:Slider({ 
         Title = "Prediction", Flag = "jdPrediction", Value = {Min=0.0,Max=1.0,Default=jd_PREDICTION}, Step = 0.01, 
-        Callback = function(v) 
-            local cbOk = pcall(function()
-                jd_PREDICTION=v
-            end)
-            if not cbOk then warn("Prediction slider failed") end
-        end 
+        Callback = function(v) jd_PREDICTION=v end 
     })
     
     sec_024:Slider({ 
         Title = "Hold Duration (s)", Flag = "jdHoldDur", Value = {Min=0.3,Max=2.0,Default=jd_HOLD_DURATION}, Step = 0.1, 
-        Callback = function(v) 
-            local cbOk = pcall(function()
-                jd_HOLD_DURATION=v
-            end)
-            if not cbOk then warn("Hold duration slider failed") end
-        end 
+        Callback = function(v) jd_HOLD_DURATION=v end 
     })
 
     -- Axe Lock-On Section
@@ -445,20 +405,14 @@ do
     sec_025:Toggle({ 
         Title = "Enable Axe Lock-On", Flag = "jdAxeEnabled", Default = false, Type = "Checkbox",
         Callback = function(on) 
-            local cbOk = pcall(function()
-                jd_axeEnabled=on
-            end)
-            if not cbOk then warn("Axe toggle callback failed") end
+            jd_axeEnabled=on
         end
     })
     
     sec_025:Slider({ 
         Title = "Lock Duration (s)", Flag = "jdAxeLockDur", Value = {Min=0.5,Max=3.0,Default=jd_AXE_LOCK_DURATION}, Step = 0.1, 
         Callback = function(v) 
-            local cbOk = pcall(function()
-                jd_AXE_LOCK_DURATION=v
-            end)
-            if not cbOk then warn("Axe lock duration slider failed") end
+            jd_AXE_LOCK_DURATION=v
         end 
     })
 
@@ -466,12 +420,9 @@ do
     local sec_026 = tabJaneDoe:Section({ Title = "Control", Opened = true })
     sec_026:Button({ 
         Title = "Unload Jane Doe", Callback = function()
-            local cbOk = pcall(function()
-                if jd_unloaded then return end
-                jd_unloaded=true; jd_enabled=false; jd_aimbotOn=false; jd_axeEnabled=false
-                jd_removePatch()
-            end)
-            if not cbOk then warn("Unload callback failed") end
+            if jd_unloaded then return end
+            jd_unloaded=true; jd_enabled=false; jd_aimbotOn=false; jd_axeEnabled=false
+            jd_removePatch()
         end
     })
 end
@@ -480,18 +431,15 @@ end
 tabJaneDoe:Section({ Title = "System" }):Button({
     Title = "Unload Script Completely",
     Callback = function()
-        local cbOk = pcall(function()
-            local ok, rf = pcall(function()
-                return RobloxServices.ReplicatedStorage:WaitForChild("Modules", 2)
-                    :WaitForChild("Network", 2)
-                    :WaitForChild("Network", 2)
-                    :WaitForChild("RemoteFunction", 2)
-            end)
-            if ok and rf then
-                rfDispatch:uninstall(rf)
-            end
-            Window:Destroy()
+        local ok, rf = pcall(function()
+            return RobloxServices.ReplicatedStorage:WaitForChild("Modules", 2)
+                :WaitForChild("Network", 2)
+                :WaitForChild("Network", 2)
+                :WaitForChild("RemoteFunction", 2)
         end)
-        if not cbOk then warn("Global unload failed") end
+        if ok and rf then
+            rfDispatch:uninstall(rf)
+        end
+        Window:Destroy()
     end
 })
